@@ -1,0 +1,107 @@
+name: Package GDBuildSystem
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: write # Needed for the release process
+
+jobs:
+  semantic-versioning:
+    runs-on: ubuntu-latest
+
+    outputs:
+      version: ${{ steps.semantic-release.outputs.version }}
+      
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: |
+          npm init -y
+          npm install --save-dev semantic-release @semantic-release/commit-analyzer @semantic-release/release-notes-generator @semantic-release/changelog @semantic-release/github @semantic-release/git
+          npm install
+
+      - id: semantic-release
+        name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx semantic-release | tee semantic-release.log
+          # Extract the version from the log, which is in the format of "1.1.0-dev.14" or "1.1.0". So we would have to handle any characters after an optional hyphen, and one dot then a number.
+          VERSION=$(grep -oP 'Published release \K[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z\.-]+)?' semantic-release.log | head -n 1)
+          # Last ditch effort to get the version.
+          if [ -z "$VERSION" ]; then
+            # When the new release version is not found in the log, we can try extracting the found last version from the log.
+            # Starts with 'Found git tag'
+            VERSION=$(grep -oP 'Found git tag v\K[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z\.-]+)?' semantic-release.log | head -n 1)
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "No version found in semantic-release output"
+            exit 1
+          fi
+          echo "Version found: $VERSION"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+
+  package:
+    runs-on: ubuntu-latest
+    needs: 
+      - semantic-versioning
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Create addons folder and move GDBuildSystem
+        run: |
+            export VERSION=$(echo "${{ needs.semantic-versioning.outputs.version }}" | tr '.' '_' )
+            echo "VERSION=$VERSION" >> $GITHUB_ENV
+            echo "VERSION: $VERSION"
+            # Update the version in plugin.cfg
+            # Format version="myversion"
+            sed -i "s/version=\".*\"/version=\"$VERSION\"/" gdbuildsystem/plugin.cfg 
+
+            # Create addons folder and move GDBuildSystem
+            mkdir addons
+            mv gdbuildsystem addons/
+
+      - name: Zip the addons folder
+        run: |
+            zip -r gdbuildsystem-$VERSION.zip addons
+
+      - name: Upload the zip file as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+            name: addons-zip
+            path: gdbuildsystem-$VERSION.zip
+            retention-days: 1
+    
+      - name: Upload asset with gh CLI
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload v${{ needs.semantic-versioning.outputs.version }} gdbuildsystem-$VERSION.zip --clobber
+      
+      # Upload to Godot Asset Library;
+      - name: Upload to Godot Asset Library
+        env:
+          GODOT_LIBRARY_USERNAME: ${{ secrets.GODOT_LIBRARY_USERNAME }}
+          GODOT_LIBRARY_PASSWORD: ${{ secrets.GODOT_LIBRARY_PASSWORD }}
+          GODOT_LIBRARY_ASSET_NAME: ${{ vars.GODOT_LIBRARY_ASSET_NAME }}
+        run: |
+          export VERSION=$(echo "${{ needs.semantic-versioning.outputs.version }}")
+          npm i axios
+          node .github/scripts/godot-library-post.js
