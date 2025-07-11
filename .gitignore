@@ -1,0 +1,19 @@
+# Visual Studio
+.sln/
+
+*.sln.lnk
+
+# Locks
+/*.lock
+
+# scons db
+.sconsign*.dblite
+
+# C++
+*.obj
+
+# Build
+.build/
+
+# npm
+node_modules/

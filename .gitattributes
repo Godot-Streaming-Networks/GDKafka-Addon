@@ -1,0 +1,22 @@
+# Set all files to use LF line endings by default
+* text eol=lf
+
+# Override specific file types
+*.bat text eol=crlf
+
+# Treat binary files as binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.exe binary
+*.dll binary
+*.lib binary
+*.so binary
+
+# Ignore merge conflicts for generated files
+CMakeCache.txt merge=union
+*.vcxproj merge=union
+*.vcxproj.filters merge=union
+*.sln merge=union
